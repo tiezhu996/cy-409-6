@@ -32,7 +32,9 @@ var articleCmd = &cobra.Command{
 		}
 
 		var targetNumbers []int
+		rangeMode := false
 		if articleFrom > 0 && articleTo >= articleFrom {
+			rangeMode = true
 			for i := articleFrom; i <= articleTo; i++ {
 				targetNumbers = append(targetNumbers, i)
 			}
@@ -43,12 +45,18 @@ var articleCmd = &cobra.Command{
 		if articleFavorite {
 			for _, n := range targetNumbers {
 				if err := s.AddFavorite(law.ID, n); err != nil {
+					if rangeMode {
+						continue
+					}
 					return err
 				}
 			}
 		} else if articleUnfavorite {
 			for _, n := range targetNumbers {
 				if err := s.RemoveFavorite(law.ID, n); err != nil {
+					if rangeMode {
+						continue
+					}
 					return err
 				}
 			}

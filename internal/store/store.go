@@ -165,12 +165,20 @@ func favoriteKey(lawID string, articleNumber int) string {
 
 func (s *Store) AddFavorite(lawID string, articleNumber int) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
+		articleKey := lawID + "-article-" + strconv.Itoa(articleNumber)
+		if tx.Bucket(articlesBucket).Get([]byte(articleKey)) == nil {
+			return fmt.Errorf("第 %d 条不存在", articleNumber)
+		}
 		return tx.Bucket(favoritesBucket).Put([]byte(favoriteKey(lawID, articleNumber)), []byte("1"))
 	})
 }
 
 func (s *Store) RemoveFavorite(lawID string, articleNumber int) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
+		articleKey := lawID + "-article-" + strconv.Itoa(articleNumber)
+		if tx.Bucket(articlesBucket).Get([]byte(articleKey)) == nil {
+			return fmt.Errorf("第 %d 条不存在", articleNumber)
+		}
 		return tx.Bucket(favoritesBucket).Delete([]byte(favoriteKey(lawID, articleNumber)))
 	})
 }
@@ -189,7 +197,10 @@ func (s *Store) FavoriteCount(lawID string) (int, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		return tx.Bucket(favoritesBucket).ForEach(func(key, value []byte) error {
 			if len(key) >= len(lawID) && string(key[:len(lawID)]) == lawID {
-				count++
+				articleKey := lawID + "-article-" + string(key[len(lawID)+2:])
+				if tx.Bucket(articlesBucket).Get([]byte(articleKey)) != nil {
+					count++
+				}
 			}
 			return nil
 		})
