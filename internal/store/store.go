@@ -15,6 +15,7 @@ var (
 	articlesBucket = []byte("articles")
 	sectionsBucket = []byte("sections")
 	indexBucket    = []byte("index")
+	favoritesBucket = []byte("favorites")
 )
 
 type Store struct {
@@ -28,7 +29,7 @@ func Open(path string) (*Store, error) {
 	}
 	s := &Store{db: db}
 	return s, db.Update(func(tx *bbolt.Tx) error {
-		for _, bucket := range [][]byte{lawsBucket, articlesBucket, sectionsBucket, indexBucket} {
+		for _, bucket := range [][]byte{lawsBucket, articlesBucket, sectionsBucket, indexBucket, favoritesBucket} {
 			if _, err := tx.CreateBucketIfNotExists(bucket); err != nil {
 				return err
 			}
@@ -142,7 +143,7 @@ func (s *Store) ArticleByNumber(lawID string, number int) (models.Article, error
 func (s *Store) DeleteLaw(lawID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		_ = tx.Bucket(lawsBucket).Delete([]byte(lawID))
-		for _, bucket := range []*bbolt.Bucket{tx.Bucket(articlesBucket), tx.Bucket(sectionsBucket), tx.Bucket(indexBucket)} {
+		for _, bucket := range []*bbolt.Bucket{tx.Bucket(articlesBucket), tx.Bucket(sectionsBucket), tx.Bucket(indexBucket), tx.Bucket(favoritesBucket)} {
 			var keys [][]byte
 			_ = bucket.ForEach(func(key, value []byte) error {
 				if len(key) >= len(lawID) && string(key[:len(lawID)]) == lawID {
@@ -156,6 +157,64 @@ func (s *Store) DeleteLaw(lawID string) error {
 		}
 		return nil
 	})
+}
+
+func favoriteKey(lawID string, articleNumber int) string {
+	return lawID + "::" + strconv.Itoa(articleNumber)
+}
+
+func (s *Store) AddFavorite(lawID string, articleNumber int) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(favoritesBucket).Put([]byte(favoriteKey(lawID, articleNumber)), []byte("1"))
+	})
+}
+
+func (s *Store) RemoveFavorite(lawID string, articleNumber int) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(favoritesBucket).Delete([]byte(favoriteKey(lawID, articleNumber)))
+	})
+}
+
+func (s *Store) IsFavorite(lawID string, articleNumber int) (bool, error) {
+	var result bool
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		result = tx.Bucket(favoritesBucket).Get([]byte(favoriteKey(lawID, articleNumber))) != nil
+		return nil
+	})
+	return result, err
+}
+
+func (s *Store) FavoriteCount(lawID string) (int, error) {
+	count := 0
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		return tx.Bucket(favoritesBucket).ForEach(func(key, value []byte) error {
+			if len(key) >= len(lawID) && string(key[:len(lawID)]) == lawID {
+				count++
+			}
+			return nil
+		})
+	})
+	return count, err
+}
+
+func (s *Store) Favorites(lawID string) ([]models.Article, error) {
+	var articles []models.Article
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		return tx.Bucket(favoritesBucket).ForEach(func(key, value []byte) error {
+			if len(key) >= len(lawID) && string(key[:len(lawID)]) == lawID {
+				articleKey := lawID + "-article-" + string(key[len(lawID)+2:])
+				raw := tx.Bucket(articlesBucket).Get([]byte(articleKey))
+				if raw != nil {
+					var article models.Article
+					if err := json.Unmarshal(raw, &article); err == nil {
+						articles = append(articles, article)
+					}
+				}
+			}
+			return nil
+		})
+	})
+	return articles, err
 }
 
 func putJSON(bucket *bbolt.Bucket, key string, value any) error {
